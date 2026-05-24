@@ -14,8 +14,11 @@ import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.StringValue;
+import net.sf.jsqlparser.expression.BinaryExpression;
+import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.Values;
 
 import java.util.ArrayList;
@@ -36,6 +39,12 @@ public class PhysicalPlanner {
             return handleInsert(dbManager, insertOperator);
         } else if (logicalOp instanceof LogicalUpdateOperator updateOperator) {
             return handleUpdate(dbManager, updateOperator);
+        } else if (logicalOp instanceof LogicalDeleteOperator deleteOperator) {
+            return handleDelete(dbManager, deleteOperator);
+        } else if (logicalOp instanceof LogicalCountOperator countOperator) {
+            return handleCount(dbManager, countOperator);
+        } else if (logicalOp instanceof LogicalAdvancedSelectOperator advancedSelectOperator) {
+            return new AdvancedSelectOperator(dbManager, advancedSelectOperator.getPlainSelect());
         }
 
         else {
@@ -53,10 +62,8 @@ public class PhysicalPlanner {
             return new SeqScanOperator(tableName, dbManager);
         }
 
-        // Check if index exists for the table (for now, assume RBTreeIndex always
-        // exists if index is defined)
         if (tableMeta.getIndexes() != null && !tableMeta.getIndexes().isEmpty()) {
-            throw new RuntimeException("unimplement");
+            return new SeqScanOperator(tableName, dbManager);
         } else {
             return new SeqScanOperator(tableName, dbManager);
         }
@@ -64,6 +71,14 @@ public class PhysicalPlanner {
 
     private static PhysicalOperator handleFilter(DBManager dbManager, LogicalFilterOperator logicalFilterOp)
             throws DBException {
+        if (logicalFilterOp.getChild() instanceof LogicalTableScanOperator tableScanOperator) {
+            IndexedLookup lookup = findIndexedLookup(dbManager, tableScanOperator.getTableName(),
+                    logicalFilterOp.getWhereExpr());
+            if (lookup != null) {
+                PhysicalOperator indexOp = new IndexScanOperator(dbManager, tableScanOperator.getTableName(), lookup.rids);
+                return new FilterOperator(indexOp, logicalFilterOp.getWhereExpr());
+            }
+        }
         PhysicalOperator inputOp = generateOperator(dbManager, logicalFilterOp.getChild());
         return new FilterOperator(inputOp, logicalFilterOp.getWhereExpr());
     }
@@ -75,9 +90,10 @@ public class PhysicalPlanner {
         PhysicalOperator joinOp = new NestedLoopJoinOperator(leftOp, rightOp, logicalJoinOp.getJoinExprs());
 
         Collection<Expression> joinFilters = logicalJoinOp.getJoinExprs();
-        PhysicalOperator finalOp = new FilterOperator(joinOp, joinFilters);
-
-        return finalOp;
+        if (joinFilters == null || joinFilters.isEmpty()) {
+            return joinOp;
+        }
+        return new FilterOperator(joinOp, joinFilters);
     }
 
     private static PhysicalOperator handleProject(DBManager dbManager, LogicalProjectOperator logicalProjectOp)
@@ -188,11 +204,82 @@ public class PhysicalPlanner {
 
 
     private static PhysicalOperator handleUpdate(DBManager dbManager, LogicalUpdateOperator logicalUpdateOp) throws DBException {
-        // TODO: Implement handleUpdate
         PhysicalOperator scanner = generateOperator(dbManager, logicalUpdateOp.getChild());
         if (logicalUpdateOp.getColumns().size() != 1 ) {
             throw new DBException(ExceptionTypes.InvalidSQL("INSERT", "Unsupported expression list"));
         }
-        return new UpdateOperator(scanner, logicalUpdateOp.getTableName(), logicalUpdateOp.getColumns().get(0), logicalUpdateOp.getExpression());
+        return new UpdateOperator(scanner, logicalUpdateOp.getTableName(), logicalUpdateOp.getColumns().get(0),
+                logicalUpdateOp.getExpression(), dbManager);
+    }
+
+    private static PhysicalOperator handleDelete(DBManager dbManager, LogicalDeleteOperator logicalDeleteOp) throws DBException {
+        PhysicalOperator scanner = generateOperator(dbManager, logicalDeleteOp.getChild());
+        return new DeleteOperator(scanner, logicalDeleteOp.getTableName(), logicalDeleteOp.getWhereExpr(), dbManager);
+    }
+
+    private static PhysicalOperator handleCount(DBManager dbManager, LogicalCountOperator logicalCountOp) throws DBException {
+        PhysicalOperator input = generateOperator(dbManager, logicalCountOp.getChild());
+        return new CountOperator(input);
+    }
+
+    private record IndexedLookup(List<edu.sustech.cs307.record.RID> rids) {
+    }
+
+    private static IndexedLookup findIndexedLookup(DBManager dbManager, String tableName, Expression expression)
+            throws DBException {
+        if (expression instanceof AndExpression andExpression) {
+            IndexedLookup left = findIndexedLookup(dbManager, tableName, andExpression.getLeftExpression());
+            if (left != null) {
+                return left;
+            }
+            return findIndexedLookup(dbManager, tableName, andExpression.getRightExpression());
+        }
+        if (!(expression instanceof BinaryExpression binaryExpression)) {
+            return null;
+        }
+
+        Expression left = binaryExpression.getLeftExpression();
+        Expression right = binaryExpression.getRightExpression();
+        String operator = binaryExpression.getStringExpression();
+        if (left instanceof Column column && isConstant(right)) {
+            Value value = parseConstant(right);
+            List<edu.sustech.cs307.record.RID> rids =
+                    dbManager.lookupIndex(tableName, column.getColumnName(), operator, value);
+            return rids == null ? null : new IndexedLookup(rids);
+        }
+        if (right instanceof Column column && isConstant(left)) {
+            Value value = parseConstant(left);
+            List<edu.sustech.cs307.record.RID> rids =
+                    dbManager.lookupIndex(tableName, column.getColumnName(), reverseOperator(operator), value);
+            return rids == null ? null : new IndexedLookup(rids);
+        }
+        return null;
+    }
+
+    private static boolean isConstant(Expression expression) {
+        return expression instanceof StringValue || expression instanceof DoubleValue || expression instanceof LongValue;
+    }
+
+    private static Value parseConstant(Expression expression) throws DBException {
+        if (expression instanceof StringValue stringValue) {
+            return new Value(stringValue.getValue(), ValueType.CHAR);
+        }
+        if (expression instanceof DoubleValue doubleValue) {
+            return new Value(doubleValue.getValue(), ValueType.FLOAT);
+        }
+        if (expression instanceof LongValue longValue) {
+            return new Value(longValue.getValue(), ValueType.INTEGER);
+        }
+        throw new DBException(ExceptionTypes.UnsupportedExpression(expression));
+    }
+
+    private static String reverseOperator(String operator) {
+        return switch (operator) {
+            case ">" -> "<";
+            case ">=" -> "<=";
+            case "<" -> ">";
+            case "<=" -> ">=";
+            default -> operator;
+        };
     }
 }

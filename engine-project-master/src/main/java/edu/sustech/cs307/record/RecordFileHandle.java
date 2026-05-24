@@ -69,7 +69,11 @@ public class RecordFileHandle {
      */
     public boolean IsRecord(RID rid) throws DBException {
         RecordPageHandle page_handle = FetchPageHandle(rid.pageNum);
-        return BitMap.isSet(page_handle.bitmap, rid.slotNum);
+        try {
+            return BitMap.isSet(page_handle.bitmap, rid.slotNum);
+        } finally {
+            bufferPool.unpin_page(page_handle.page.position, false);
+        }
     }
 
     /**
@@ -116,7 +120,7 @@ public class RecordFileHandle {
 
         bufferPool.unpin_page(pageHandle.page.position, true);
 
-        return new RID(pageHandle.page.getPageID(), slotNum);
+        return new RID(toLogicalPageId(pageHandle.page.getPageID()), slotNum);
     }
 
     /**
@@ -128,8 +132,12 @@ public class RecordFileHandle {
     public void DeleteRecord(RID rid) throws DBException {
 
         RecordPageHandle pageHandle = FetchPageHandle(rid.pageNum);
+        boolean wasFull = pageHandle.pageHdr.getNumberOfRecords() == fileHeader.getNumberOfRecordsPrePage();
         BitMap.reset(pageHandle.bitmap, rid.slotNum);
         pageHandle.pageHdr.setNumberOfRecords(pageHandle.pageHdr.getNumberOfRecords() - 1);
+        if (wasFull) {
+            deletePageHandle(pageHandle);
+        }
         bufferPool.unpin_page(pageHandle.page.position, true);
     }
 
@@ -156,10 +164,10 @@ public class RecordFileHandle {
      * @throws DBException 如果页面 ID 超出范围或页面无法从缓冲池中获取。
      */
     public RecordPageHandle FetchPageHandle(int pageId) throws DBException {
-        if (pageId > fileHeader.getNumberOfPages()) {
+        if (pageId < 0 || pageId >= dataPageCount()) {
             throw new RuntimeException(String.format("%s: pageId %d is out of range", filename, pageId));
         }
-        PagePosition pagePosition = new PagePosition(filename, pageId * Page.DEFAULT_PAGE_SIZE);
+        PagePosition pagePosition = dataPagePosition(pageId);
         Page page = bufferPool.FetchPage(pagePosition);
         if (page == null) {
             throw new RuntimeException(String.format("%s: pageId %d is out of range", filename, pageId));
@@ -168,7 +176,7 @@ public class RecordFileHandle {
     }
 
     public void UnpinPageHandle(int pageId, boolean is_dirty) throws DBException {
-        bufferPool.unpin_page(new PagePosition(filename, pageId), is_dirty);
+        bufferPool.unpin_page(dataPagePosition(pageId), is_dirty);
     }
 
     /**
@@ -191,7 +199,7 @@ public class RecordFileHandle {
 
         // Update the file header
         fileHeader.setNumberOfPages(fileHeader.getNumberOfPages() + 1);
-        fileHeader.setFirstFreePage(newPage.getPageID());
+        fileHeader.setFirstFreePage(toLogicalPageId(newPage.getPageID()));
 
         return pageHandle;
     }
@@ -218,6 +226,18 @@ public class RecordFileHandle {
      */
     private void deletePageHandle(RecordPageHandle handle) {
         handle.pageHdr.setNextFreePageNo(fileHeader.getFirstFreePage());
-        fileHeader.setFirstFreePage(handle.page.getPageID());
+        fileHeader.setFirstFreePage(toLogicalPageId(handle.page.getPageID()));
+    }
+
+    private int dataPageCount() {
+        return Math.max(0, fileHeader.getNumberOfPages() - 1);
+    }
+
+    private PagePosition dataPagePosition(int logicalPageId) {
+        return new PagePosition(filename, (logicalPageId + 1) * Page.DEFAULT_PAGE_SIZE);
+    }
+
+    private int toLogicalPageId(int physicalPageId) {
+        return physicalPageId - 1;
     }
 }

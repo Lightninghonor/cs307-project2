@@ -43,13 +43,14 @@ public class CreateTableExecutor implements DMLExecutor {
                         ExceptionTypes.InvalidSQL(sql, String.format("INVALID COLUMN NAME = %s", colName)));
             }
             ColDataType colType = col.getColDataType();
-            if (colType.getDataType().equalsIgnoreCase("char")) {
+            String dataType = colType.getDataType();
+            if (dataType.equalsIgnoreCase("char") || dataType.equalsIgnoreCase("varchar")) {
                 colMapping.add(new ColumnMeta(table, colName, ValueType.CHAR, Value.CHAR_SIZE, offset));
                 offset += Value.CHAR_SIZE;
-            } else if (colType.getDataType().equalsIgnoreCase("int")) {
+            } else if (dataType.equalsIgnoreCase("int") || dataType.equalsIgnoreCase("integer")) {
                 colMapping.add(new ColumnMeta(table, colName, ValueType.INTEGER, Value.INT_SIZE, offset));
                 offset += Value.INT_SIZE;
-            } else if (colType.getDataType().equalsIgnoreCase("float")) {
+            } else if (dataType.equalsIgnoreCase("float") || dataType.equalsIgnoreCase("double")) {
                 colMapping.add(new ColumnMeta(table, colName, ValueType.FLOAT, Value.FLOAT_SIZE, offset));
                 offset += Value.FLOAT_SIZE;
             } else {

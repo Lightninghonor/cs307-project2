@@ -5,11 +5,11 @@ import edu.sustech.cs307.exception.ExceptionTypes;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.meta.TabCol;
 import edu.sustech.cs307.record.RecordFileHandle;
+import edu.sustech.cs307.system.DBManager;
 import edu.sustech.cs307.tuple.TableTuple;
 import edu.sustech.cs307.tuple.TempTuple;
 import edu.sustech.cs307.tuple.Tuple;
 
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.ArrayList;
@@ -26,12 +26,13 @@ public class UpdateOperator implements PhysicalOperator {
     private final String tableName;
     private final UpdateSet updateSet;
     private final Expression whereExpr;
+    private final DBManager dbManager;
 
     private int updateCount;
     private boolean isDone;
 
     public UpdateOperator(PhysicalOperator inputOperator, String tableName, UpdateSet updateSet,
-                          Expression whereExpr) {
+                          Expression whereExpr, DBManager dbManager) {
         if (!(inputOperator instanceof SeqScanOperator seqScanOperator)) {
             throw new RuntimeException("The delete operator only accepts SeqScanOperator as input");
         }
@@ -39,6 +40,7 @@ public class UpdateOperator implements PhysicalOperator {
         this.tableName = tableName;
         this.updateSet = updateSet;
         this.whereExpr = whereExpr;
+        this.dbManager = dbManager;
         this.updateCount = 0;
         this.isDone = false;
     }
@@ -82,17 +84,11 @@ public class UpdateOperator implements PhysicalOperator {
                 }
                 ByteBuf buffer = Unpooled.buffer();
                 for (Value v : newValues) {
-                    String str = "";
-                    if (v.type == ValueType.CHAR) str = (String) v.value;
-                    if (str.length() == 64) {
-                        ByteBuffer temp = ByteBuffer.allocate(64);
-                        temp.put(str.getBytes());
-                        buffer.writeBytes(temp.array());
-                    }
-                    else buffer.writeBytes(v.ToByte());
+                    writeRecordValue(buffer, v);
                 }
 
                 fileHandle.UpdateRecord(tuple.getRID(), buffer);
+                dbManager.updateRecordIndexes(tableName, Arrays.asList(oldValues), newValues, tuple.getRID());
                 updateCount++;
             }
         }
@@ -145,5 +141,16 @@ public class UpdateOperator implements PhysicalOperator {
 
     public String getTableName() {
         return tableName;
+    }
+
+    private void writeRecordValue(ByteBuf buffer, Value value) {
+        if (value.type != ValueType.CHAR) {
+            buffer.writeBytes(value.ToByte());
+            return;
+        }
+        byte[] field = new byte[Value.CHAR_SIZE];
+        byte[] raw = value.ToByte();
+        System.arraycopy(raw, 0, field, 0, Math.min(raw.length, field.length));
+        buffer.writeBytes(field);
     }
 }

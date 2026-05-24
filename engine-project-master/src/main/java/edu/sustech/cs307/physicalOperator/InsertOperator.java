@@ -43,9 +43,11 @@ public class InsertOperator implements PhysicalOperator {
             // Serialize values to ByteBuf
             ByteBuf buffer = Unpooled.buffer();
             for (int i = 0; i < values.size(); i++) {
-                buffer.writeBytes(values.get(i).ToByte());
+                writeRecordValue(buffer, values.get(i));
                 if ((columnSize == 1) || ((i + 1) % columnSize == 0 && i != 0)) {
-                    fileHandle.InsertRecord(buffer);
+                    int rowStart = i + 1 - columnSize;
+                    var rid = fileHandle.InsertRecord(buffer);
+                    dbManager.addRecordToIndexes(data_file, new ArrayList<>(values.subList(rowStart, i + 1)), rid);
                     buffer.clear();
                 }
             }
@@ -85,5 +87,16 @@ public class InsertOperator implements PhysicalOperator {
 
     public Tuple getNextTuple() {
         return null;
+    }
+
+    private void writeRecordValue(ByteBuf buffer, Value value) {
+        if (value.type != ValueType.CHAR) {
+            buffer.writeBytes(value.ToByte());
+            return;
+        }
+        byte[] field = new byte[Value.CHAR_SIZE];
+        byte[] raw = value.ToByte();
+        System.arraycopy(raw, 0, field, 0, Math.min(raw.length, field.length));
+        buffer.writeBytes(field);
     }
 }

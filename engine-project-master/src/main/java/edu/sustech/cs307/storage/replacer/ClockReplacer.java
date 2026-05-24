@@ -1,5 +1,7 @@
 package edu.sustech.cs307.storage.replacer;
 
+import java.util.Arrays;
+
 /**
  * Clock 替换算法（二次机会算法）。
  *
@@ -148,5 +150,13 @@ public class ClockReplacer implements PageReplacer {
     @Override
     public int size() {
         return count;
+    }
+
+    @Override
+    public void Reset() {
+        Arrays.fill(status, EMPTY);
+        Arrays.fill(frameIds, -1);
+        clockHand = 0;
+        count = 0;
     }
 }

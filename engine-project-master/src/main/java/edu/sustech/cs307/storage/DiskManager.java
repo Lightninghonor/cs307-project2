@@ -61,7 +61,7 @@ public class DiskManager {
 
     public static void dump_disk_manager_meta(DiskManager disk_manager) throws DBException {
         Map<String, Integer> filePages = disk_manager.filePages;
-        Path path = Path.of(String.format("%s/%s", DBEntry.DB_NAME, DISK_MANAGER_META));
+        Path path = Path.of(String.format("%s/%s", disk_manager.getCurrentDir(), DISK_MANAGER_META));
         // write the meta file
         File META_FILE = new File(path.toString());
         try (Writer writer = new FileWriter(META_FILE)) {
@@ -79,6 +79,26 @@ public class DiskManager {
 
     public String getCurrentDir() {
         return currentDir;
+    }
+
+    public void reloadMetadata() throws DBException {
+        Path path = Path.of(String.format("%s/%s", currentDir, DISK_MANAGER_META));
+        File metaFile = new File(path.toString());
+        this.filePages.clear();
+        if (!metaFile.exists()) {
+            return;
+        }
+        try (Reader reader = new FileReader(metaFile)) {
+            TypeReference<Map<String, Integer>> typeRef = new TypeReference<>() {
+            };
+            ObjectMapper objectMapper = new ObjectMapper();
+            Map<String, Integer> loadedPages = objectMapper.readValue(reader, typeRef);
+            if (loadedPages != null) {
+                this.filePages.putAll(loadedPages);
+            }
+        } catch (Exception e) {
+            throw new DBException(ExceptionTypes.UnableLoadMetadata(e.getMessage()));
+        }
     }
 
     /**

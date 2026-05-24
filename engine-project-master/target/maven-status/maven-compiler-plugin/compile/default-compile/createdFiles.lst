@@ -8,7 +8,6 @@ edu\sustech\cs307\storage\BufferPool.class
 edu\sustech\cs307\DBEntry.class
 edu\sustech\cs307\logicalOperator\ddl\ShowDatabaseExecutor.class
 edu\sustech\cs307\system\TransactionManager.class
-edu\sustech\cs307\index\InMemoryOrderedIndex$1.class
 edu\sustech\cs307\logicalOperator\LogicalFilterOperator.class
 edu\sustech\cs307\value\ValueType.class
 edu\sustech\cs307\meta\TableMeta.class
@@ -22,7 +21,6 @@ edu\sustech\cs307\logicalOperator\LogicalProjectOperator.class
 edu\sustech\cs307\tuple\Tuple.class
 edu\sustech\cs307\meta\TableMeta$IndexType.class
 edu\sustech\cs307\logicalOperator\LogicalUpdateOperator.class
-edu\sustech\cs307\value\ValueType$1.class
 edu\sustech\cs307\storage\DiskManager$1.class
 edu\sustech\cs307\index\Index.class
 edu\sustech\cs307\logicalOperator\ddl\DMLExecutor.class

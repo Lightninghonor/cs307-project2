@@ -30,11 +30,35 @@ public class ProjectTuple extends Tuple {
     @Override
     public Value getValue(TabCol tabCol) throws DBException {
         for (TabCol projectColumn : schema) {
-            if (projectColumn.equals(tabCol)) {
-                return inputTuple.getValue(tabCol); // Get value from input tuple
+            if (matches(projectColumn, tabCol)) {
+                return resolveValue(projectColumn);
             }
         }
         return null; // Column not in projection list
+    }
+
+    private Value resolveValue(TabCol projectColumn) throws DBException {
+        if (projectColumn.getTableName() != null && !projectColumn.getTableName().isEmpty()) {
+            return inputTuple.getValue(projectColumn);
+        }
+        for (TabCol inputColumn : inputTuple.getTupleSchema()) {
+            if (inputColumn.getColumnName().equalsIgnoreCase(projectColumn.getColumnName())) {
+                return inputTuple.getValue(inputColumn);
+            }
+        }
+        return null;
+    }
+
+    private boolean matches(TabCol projectColumn, TabCol requestedColumn) {
+        boolean columnMatches = projectColumn.getColumnName().equalsIgnoreCase(requestedColumn.getColumnName());
+        if (!columnMatches) {
+            return false;
+        }
+        String projectTable = projectColumn.getTableName();
+        String requestedTable = requestedColumn.getTableName();
+        return projectTable == null || projectTable.isEmpty()
+                || requestedTable == null || requestedTable.isEmpty()
+                || projectTable.equalsIgnoreCase(requestedTable);
     }
 
     /**
@@ -52,7 +76,7 @@ public class ProjectTuple extends Tuple {
         // 通过 meta 顺序和信息获取所有 Value
         ArrayList<Value> values = new ArrayList<>();
         for (var tabCol : this.schema) {
-            Value value = getValue(tabCol);
+            Value value = resolveValue(tabCol);
             values.add(value);
         }
         return values.toArray(new Value[0]);

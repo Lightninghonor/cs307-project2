@@ -62,6 +62,16 @@ public class BufferPool {
         return poolSize;
     }
 
+    public void ClearCache() {
+        pageMap.clear();
+        freeList.clear();
+        for (int i = 0; i < poolSize; i++) {
+            pages.set(i, new Page());
+            freeList.add(i);
+        }
+        replacer.Reset();
+    }
+
     public static void MarkPageDirty(Page page) {
         page.dirty = true;
     }
@@ -185,7 +195,7 @@ public class BufferPool {
                 diskManager.FlushPage(page);
                 page.dirty = false;
             }
-            pages.remove(frame_id);
+            pages.set(frame_id, new Page());
             pageMap.remove(position);
             freeList.add(frame_id);
             // pin count must be 0
@@ -206,7 +216,7 @@ public class BufferPool {
         for (Map.Entry<PagePosition, Integer> entry : this.pageMap.entrySet()) {
             PagePosition position = entry.getKey();
             Integer frame_id = entry.getValue();
-            if (filename.equals("") || position.filename.equals(filename)) {
+            if (filename == null || filename.equals("") || position.filename.equals(filename)) {
                 Page page = pages.get(frame_id);
                 diskManager.FlushPage(page);
                 page.dirty = false;

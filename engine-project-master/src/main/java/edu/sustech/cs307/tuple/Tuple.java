@@ -23,11 +23,12 @@ public abstract class Tuple {
     }
 
     private boolean evaluateCondition(Tuple tuple, Expression whereExpr) {
-        //todo: add Or condition
         if (whereExpr instanceof AndExpression andExpr) {
-            // Recursively evaluate left and right expressions
             return evaluateCondition(tuple, andExpr.getLeftExpression())
                     && evaluateCondition(tuple, andExpr.getRightExpression());
+        } else if (whereExpr instanceof OrExpression orExpr) {
+            return evaluateCondition(tuple, orExpr.getLeftExpression())
+                    || evaluateCondition(tuple, orExpr.getRightExpression());
         } else if (whereExpr instanceof BinaryExpression binaryExpression) {
             return evaluateBinaryExpression(tuple, binaryExpression);
         } else {
@@ -44,14 +45,9 @@ public abstract class Tuple {
 
         try {
             if (leftExpr instanceof Column leftColumn) {
-                //get table name
-                String table_name = leftColumn.getTableName();
-                if (tuple instanceof TableTuple) {
-                    TableTuple tableTuple = (TableTuple) tuple;
-                    table_name = tableTuple.getTableName();
-                }
+                String table_name = resolveTableName(tuple, leftColumn);
                 leftValue = tuple.getValue(new TabCol(table_name, leftColumn.getColumnName()));
-                if (leftValue.type == ValueType.CHAR) {
+                if (leftValue != null && leftValue.type == ValueType.CHAR) {
                     leftValue = new Value(leftValue.toString());
                 }
             } else {
@@ -59,12 +55,7 @@ public abstract class Tuple {
             }
 
             if (rightExpr instanceof Column rightColumn) {
-                //get table name
-                String table_name = rightColumn.getTableName();
-                if (tuple instanceof TableTuple) {
-                    TableTuple tableTuple = (TableTuple) tuple;
-                    table_name = tableTuple.getTableName();
-                }
+                String table_name = resolveTableName(tuple, rightColumn);
                 rightValue = tuple.getValue(new TabCol(table_name, rightColumn.getColumnName()));
             } else {
                 rightValue = getConstantValue(rightExpr); // Handle constant right value
@@ -78,12 +69,35 @@ public abstract class Tuple {
             if (operator.equals("=")) {
                 return comparisonResult == 0;
             }
-            // todo: finish condition > < >= <=
+            return switch (operator) {
+                case ">" -> comparisonResult > 0;
+                case ">=" -> comparisonResult >= 0;
+                case "<" -> comparisonResult < 0;
+                case "<=" -> comparisonResult <= 0;
+                case "<>" , "!=" -> comparisonResult != 0;
+                default -> false;
+            };
 
         } catch (DBException e) {
             e.printStackTrace(); // Handle exception properly
         }
         return false;
+    }
+
+    private String resolveTableName(Tuple tuple, Column column) {
+        String tableName = column.getTableName();
+        if (tableName != null && !tableName.isEmpty()) {
+            return tableName;
+        }
+        if (tuple instanceof TableTuple tableTuple) {
+            return tableTuple.getTableName();
+        }
+        for (TabCol tabCol : tuple.getTupleSchema()) {
+            if (tabCol.getColumnName().equalsIgnoreCase(column.getColumnName())) {
+                return tabCol.getTableName();
+            }
+        }
+        return "";
     }
 
     private Value getConstantValue(Expression expr) {
@@ -106,7 +120,7 @@ public abstract class Tuple {
             return new Value(((LongValue) expr).getValue(), ValueType.INTEGER);
         } else if (expr instanceof Column) {
             Column col = (Column) expr;
-            return getValue(new TabCol(col.getTableName(), col.getColumnName()));
+            return getValue(new TabCol(resolveTableName(this, col), col.getColumnName()));
         } else {
             throw new DBException(ExceptionTypes.UnsupportedExpression(expr));
         }

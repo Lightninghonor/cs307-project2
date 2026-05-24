@@ -139,29 +139,19 @@ public class DBEntry {
     }
 
     private static String getSperator(int width) {
-        // ───────────────
         StringBuilder line = new StringBuilder("+");
         for (int i = 0; i < width; i++) {
-            line.append("───────────────");
+            line.append("---------------");
             line.append("+");
         }
         return line.toString();
     }
 
     private static String getStartEndLine(int width, boolean header) {
-        StringBuilder end_line;
-        if (header) {
-            end_line = new StringBuilder("┌");
-        } else {
-            end_line = new StringBuilder("└");
-        }
+        StringBuilder end_line = new StringBuilder("+");
         for (int i = 0; i < width; i++) {
-            end_line.append("───────────────");
-            if (header) {
-                end_line.append("┐");
-            } else {
-                end_line.append("┘");
-            }
+            end_line.append("---------------");
+            end_line.append("+");
         }
         return end_line.toString();
     }
